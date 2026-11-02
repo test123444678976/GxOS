@@ -1,0 +1,71 @@
+name: Build GxOS ISO
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/build-iso.yml"
+      - "config/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build-iso:
+    name: Build bootable GxOS ISO
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out GxOS sources
+        uses: actions/checkout@v4
+
+      - name: Install Debian live-build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            live-build \
+            debootstrap \
+            squashfs-tools \
+            xorriso \
+            dosfstools \
+            mtools \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            grub-efi-ia32-bin \
+            qemu-utils
+
+      - name: Configure GxOS
+        run: |
+          sudo lb config \
+            --distribution stable \
+            --architectures amd64 \
+            --binary-images iso-hybrid \
+            --archive-areas "main contrib non-free-firmware" \
+            --bootappend-live "boot=live components hostname=GxOS username=gxos"
+
+      - name: Build ISO
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo lb build
+          echo "ISO files produced:"
+          find . -maxdepth 1 -type f -name "*.iso" -printf "%f (%s bytes)\n"
+          test -n "$(find . -maxdepth 1 -type f -name '*.iso' -print -quit)"
+
+      - name: Rename ISO to GxOS-amd64.iso
+        run: |
+          iso="$(find . -maxdepth 1 -type f -name '*.iso' -print -quit)"
+          cp "$iso" GxOS-amd64.iso
+          sha256sum GxOS-amd64.iso > GxOS-amd64.iso.sha256
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GxOS-ISO-amd64
+          path: |
+            GxOS-amd64.iso
+            GxOS-amd64.iso.sha256
+          if-no-files-found: error
+          retention-days: 14
